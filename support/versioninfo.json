@@ -1,0 +1,16 @@
+{
+  "FixedFileInfo": {
+    "FileVersion": { "Major": 0, "Minor": 1, "Patch": 0, "Build": 0 },
+    "ProductVersion": { "Major": 0, "Minor": 1, "Patch": 0, "Build": 0 }
+  },
+  "StringFileInfo": {
+    "FileDescription": "Oblireach Support",
+    "ProductName": "Oblireach Support",
+    "CompanyName": "Oblireach",
+    "OriginalFilename": "OblireachSupport.exe",
+    "InternalName": "OblireachSupport",
+    "FileVersion": "0.1.0",
+    "ProductVersion": "0.1.0"
+  },
+  "IconPath": "icon.ico"
+}

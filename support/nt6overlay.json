@@ -1,0 +1,4 @@
+{"Replace": {
+  "../agent/go.mod": "../agent/go120.mod",
+  "../supportlink/go.mod": "../supportlink/go120.mod"
+}}

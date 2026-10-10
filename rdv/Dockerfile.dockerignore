@@ -1,0 +1,8 @@
+# Used by BuildKit with "docker build -f rdv/Dockerfile ." from the
+# repository root: only the two Go modules the image needs.
+*
+!rdv/
+!supportlink/
+rdv/**/*_test.go
+supportlink/**/*_test.go
+rdv/.env

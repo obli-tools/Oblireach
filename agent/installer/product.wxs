@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Oblireach Agent - Windows MSI Installer
+  Built with WiX v4+ on Windows.
+
+  Prerequisites (one-time setup):
+    dotnet tool install -g wix
+    go install (Go 1.22+, https://go.dev/dl)
+
+  Build (from agent/ directory):
+    the release pipeline (wix build)
+
+  Install command:
+    msiexec /i oblireach-agent.msi SERVERURL="https://..." APIKEY="your-key" /quiet
+-->
+<!--
+  Two build lines from this ONE template (same UpgradeCode, service, folder,
+  component GUIDs and version number: an nt6 install upgrades / is upgraded
+  in place like any other version, MajorUpgrade on Version):
+    - modern (default): Go 1.22+ binary, Windows 10 / Server 2016 or later.
+        wix build installer\_product_versioned.wxs -b . -arch x64 -out dist\oblireach-agent.msi
+    - nt6 (-d Nt6=1): Go 1.20 binary (go120.mod, -X main.agentFlavor=nt6),
+      Windows 7 SP1 / 8.1 / Server 2008 R2 / 2012 / 2012 R2, WITHOUT the
+      WebView2 bootstrapper (no WebView2 there: native chat window).
+        wix build installer\_product_versioned.wxs -b . -arch x64 -d Nt6=1 -out dist\oblireach-agent-nt6.msi
+      See BUILD_NT6.txt.
+-->
+<?ifdef Nt6?>
+<?define ProductName = "Oblireach Agent (Windows 7 / 8.1 / Server 2008 R2 / 2012)"?>
+<?define AgentExeSrc = "dist\oblireach-agent-nt6.exe"?>
+<?else?>
+<?define ProductName = "Oblireach Agent"?>
+<?define AgentExeSrc = "dist\oblireach-agent.exe"?>
+<?endif?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="$(var.ProductName)"
+           Manufacturer="Oblireach"
+           Version="AGENT_VERSION_PLACEHOLDER"
+           Language="1033"
+           UpgradeCode="C6D7E8F9-A0B1-2345-CDEF-012345678902">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Oblireach Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+<?ifndef Nt6?>
+    <!--
+      Modern MSI = Windows 10 / Server 2016 or later only: its Go 1.22+
+      binary dies before main() on Windows 7 / 2008 R2 and is unsupported on
+      8.1 / 2012 / 2012 R2.
+      VersionNT cannot tell Windows 10 from 8.1: Windows Installer reports
+      VersionNT = 603 on BOTH (msiexec is not manifested for Windows 10).
+      Two independent Windows-10-only signals instead:
+        - CurrentMajorVersionNumber under HKLM\SOFTWARE\Microsoft\Windows NT\
+          CurrentVersion: the value exists from Windows 10 / Server 2016 on
+          (REG_DWORD 10, read raw as "#10"), never on 8.1 / 2012 R2 or older;
+        - WindowsBuild >= 10240 (first Windows 10 build; 8.1 / 2012 R2 = 9600).
+      "Installed" keeps repair / uninstall possible on any system.
+    -->
+    <Property Id="WINCURRENTMAJOR">
+      <RegistrySearch Id="WinCurrentMajorSearch" Root="HKLM"
+                      Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+                      Name="CurrentMajorVersionNumber" Type="raw" Bitness="always64" />
+    </Property>
+    <Launch Condition="Installed OR WINCURRENTMAJOR OR (WindowsBuild &gt;= 10240)"
+            Message="This Oblireach Agent package requires Windows 10 / Windows Server 2016 or later. For Windows 7 SP1, Windows 8.1, Windows Server 2008 R2, 2012 and 2012 R2 install oblireach-agent-nt6.msi." />
+<?else?>
+    <!-- nt6 MSI: Windows 7 SP1 / Server 2008 R2 SP1 (VersionNT 601) or later. -->
+    <Launch Condition="Installed OR (VersionNT &gt; 601) OR (VersionNT = 601 AND ServicePackLevel &gt;= 1)"
+            Message="This Oblireach Agent package requires Windows 7 SP1 / Windows Server 2008 R2 SP1 or later." />
+<?endif?>
+
+    <!--
+      Disable the Windows Restart Manager to prevent "FilesInUse" dialogs.
+      Service lifecycle is fully handled by ServiceControl and CustomAction elements.
+    -->
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+
+    <!-- Properties passed via: msiexec /i ... SERVERURL="..." APIKEY="..." -->
+    <Property Id="SERVERURL" Secure="yes" />
+    <!-- Hidden: never written to msiexec logs (/l*v). -->
+    <Property Id="APIKEY" Secure="yes" Hidden="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="OblireachAgent">
+
+        <!--
+          The Go binary is a proper Windows service executable.
+          It uses tryRunAsService() which calls StartServiceCtrlDispatcher,
+          then falls back to interactive mode when not launched by SCM.
+          No service arguments: the service command line (ImagePath) is
+          readable by every local user. The agent reads SERVERURL / APIKEY
+          from the protected registry key below (non-empty values override
+          config.json) and keeps them in config.json (SYSTEM + Administrators
+          only). The agent also strips the url / key arguments that older
+          MSIs registered, once config.json holds the key.
+        -->
+        <Component Id="AgentExe" Guid="D7E8F9A0-B1C2-3456-DEFA-012345670001">
+          <!--
+            DefaultVersion forces MSI to always overwrite the exe even when the binary on disk
+            has no Win32 version resource (Go binaries are unversioned by default).
+            65535.0.0.0 is always greater than any real version, so the source file always wins.
+          -->
+          <File Id="AgentExeFile" Source="$(var.AgentExeSrc)" Name="oblireach-agent.exe"
+                DefaultVersion="65535.0.0.0" />
+          <ServiceInstall Id="AgentSvc"
+                          Name="OblireachAgent"
+                          DisplayName="Oblireach Remote Agent"
+                          Description="Provides remote desktop access and session management via the Oblireach platform."
+                          Start="auto"
+                          Type="ownProcess"
+                          Account="LocalSystem"
+                          ErrorControl="normal" />
+          <ServiceControl Id="AgentSvcStart" Name="OblireachAgent" Start="install" />
+          <ServiceControl Id="AgentSvcStop"  Name="OblireachAgent" Stop="both" Remove="uninstall" Wait="yes" />
+        </Component>
+
+        <!-- Codec DLLs (loaded dynamically at runtime — optional but recommended) -->
+        <Component Id="CodecDLLs" Guid="F9A0B1C2-D3E4-5678-FA01-012345670010">
+          <File Id="OpenH264Dll"      Source="dist\openh264-2.4.1-win64.dll"  Name="openh264-2.4.1-win64.dll" />
+          <File Id="LibVpxDll"        Source="dist\libvpx-1.dll"              Name="libvpx-1.dll" />
+          <!-- libx265 excluded: GPL v2 — users who need H.265 must supply their own DLL -->
+          <File Id="LibSvtAv1Dll"     Source="dist\libSvtAv1Enc-2.dll"       Name="libSvtAv1Enc-2.dll" />
+          <!-- x86-64 winpthreads (TDM-GCC bin/libwinpthread_64-1.dll, renamed): the only MinGW
+               runtime DLL a codec imports (libvpx). Its bin/libwinpthread-1.dll is i386: never ship it. -->
+          <File Id="LibWinPthreadDll" Source="dist\libwinpthread-1.dll"       Name="libwinpthread-1.dll" />
+        </Component>
+
+        <!--
+          Microsoft Edge WebView2 Evergreen Bootstrapper (Microsoft's own
+          signed file, redistributed UNMODIFIED: never re-signed by the signing step).
+          The chat window is a WebView2 page; when the runtime is missing
+          (Server 2016/2019/2022, Windows 10 LTSC...), the ObliReach
+          SERVICE runs this file as SYSTEM ("/silent /install", per-machine
+          runtime), on the server's order (webview2_install, platform
+          setting) and only after checking its Microsoft Authenticode
+          signature (webview2_windows.go). No custom action here: msiexec
+          stops the service during the install, and the runtime download
+          (~150 MB from Microsoft) must not hold the MSI transaction.
+          Source: agent\installer\webview2\.
+        -->
+<?ifndef Nt6?>
+        <Component Id="WebView2Bootstrapper" Guid="B3C4D5E6-F7A8-4B9C-8D0E-012345670011">
+          <File Id="WebView2BootstrapperFile" Source="installer\webview2\MicrosoftEdgeWebview2Setup.exe"
+                Name="MicrosoftEdgeWebview2Setup.exe" />
+        </Component>
+<?endif?>
+
+        <!--
+          No Indirect Display Driver bundled. Pre-login / Winlogon / UAC
+          capture is handled by spawning the helper directly on
+          winsta0\winlogon (STARTUPINFO.lpDesktop), not by plugging a
+          virtual monitor. TeamViewer and RustDesk do the same for normal
+          remote control — their IDDs are only used for privacy mode and
+          headless-no-console machines, which aren't part of Oblireach's
+          scope today.
+        -->
+
+        <!--
+          Registry config, read by the agent at every start (non-empty values
+          override config.json). Written to 64-bit hive via -arch x64 build flag.
+          HKLM\SOFTWARE\OblireachAgent\Config holds the API key: protected
+          DACL, SYSTEM + Administrators only (HKLM\SOFTWARE is readable by
+          Users). The parent key stays readable (the capture helper reads the
+          KeepAeroDuringSession opt-out there). The agent re-applies the DACL
+          at every start and deletes the ApiKey value older MSIs stored in the
+          parent key (secretfile_windows.go). New component GUID: the key path
+          changed (the old component wrote SOFTWARE\OblireachAgent).
+        -->
+        <Component Id="AgentConfig" Guid="E8F9A0B1-C2D3-4567-EFA0-012345670012">
+          <RegistryKey Root="HKLM" Key="SOFTWARE\OblireachAgent\Config" ForceCreateOnInstall="yes">
+            <PermissionEx Sddl="D:P(A;CI;KA;;;SY)(A;CI;KA;;;BA)" />
+            <RegistryValue Name="ServerUrl" Type="string" Value="[SERVERURL]" KeyPath="yes" />
+            <RegistryValue Name="ApiKey"    Type="string" Value="[APIKEY]" />
+          </RegistryKey>
+        </Component>
+
+        <!--
+          SoftwareSASGeneration = 1 (services only). Required for SendSAS()
+          to actually produce the secure-desktop transition when the agent
+          relays a Ctrl+Alt+Del from the operator. Without this key, SendSAS
+          returns TRUE but silently no-ops. RustDesk sets the same policy
+          via a deferred CustomAction (AddRegSoftwareSASGeneration) — WiX's
+          native RegistryValue element is simpler and equally effective.
+          Values: 0 none, 1 services only, 2 ease-of-access, 3 both.
+          NeverOverwrite="yes" respects GPOs that chose 3.
+        -->
+        <Component Id="SASPolicy" Guid="A1B2C3D4-E5F6-7890-1234-012345670003"
+                   NeverOverwrite="yes">
+          <RegistryValue Root="HKLM"
+                         Key="SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+                         Name="SoftwareSASGeneration"
+                         Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentRef Id="AgentExe" />
+      <ComponentRef Id="AgentConfig" />
+      <ComponentRef Id="SASPolicy" />
+      <ComponentRef Id="CodecDLLs" />
+<?ifndef Nt6?>
+      <ComponentRef Id="WebView2Bootstrapper" />
+<?endif?>
+    </Feature>
+
+  </Package>
+</Wix>

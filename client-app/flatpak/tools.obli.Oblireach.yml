@@ -1,0 +1,181 @@
+# Oblireach Desktop (Linux) — flatpak-builder manifest.
+#
+# Built by ../build-flatpak.sh on the Linux build host, NEVER from this folder
+# directly: the script stages a self-contained tree (Go modules vendored, no
+# network during the build) next to a copy of this manifest:
+#
+#   <stage>/tools.obli.Oblireach.yml   (this file)
+#   <stage>/flatpak/                   (desktop entry, metainfo — this folder)
+#   <stage>/client-app/                (the client-app module, + vendor/)
+#   <stage>/agent/  <stage>/supportlink/   (go.mod `replace` targets, vendored)
+#   <stage>/rdphost/                   (rdphost: the local RDP helper)
+#
+# Paths below are relative to <stage>. Publication: static OSTree repository
+# served by every Obliance server (/api/oblireach-desktop/flatpak/repo/),
+# GPG-signed on the build host with a key that never enters any repository.
+# Served by the Obliance server (oblireachDesktopLinux.controller.ts).
+#
+# app-id: tools.obli.Oblireach (same scheme as the Android app tools.obli.<app>).
+app-id: tools.obli.Oblireach
+runtime: org.gnome.Platform        # GTK4 + WebKitGTK 6.0 + GStreamer (WebCodecs)
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.golang   # must provide the Go of client-app/go.mod (go 1.26)
+command: oblireach
+finish-args:
+  # ── Display, GPU, sound ──
+  - --socket=wayland
+  - --socket=fallback-x11            # X11 session when there is one (outside Bazzite); XWayland otherwise
+  - --share=ipc
+  - --device=dri                     # GL / VA-API (hardware WebCodecs decoding, "Receive help" VA-API encoder)
+  - --socket=pulseaudio              # remote audio (WebAudio) + local sound capture for "Receive help"
+  # ── Network ──
+  - --share=network                  # Obliance, relays, SSH, RDP, supportlink (WebRTC)
+  # ── Files (WinSCP-style local pane, drag and drop, Downloads) ──
+  - --filesystem=home
+  - --filesystem=/run/media          # removable drives (Bazzite / KDE mount them here)
+  - --filesystem=/mnt
+  - --filesystem=xdg-data/Trash      # "delete" of the local pane = the user's Trash (trash_linux.go; explicit in case --filesystem=home is dropped)
+  - --filesystem=xdg-config/autostart:ro  # read-only: the Background portal writes the autostart entry, the app only reads its state
+  # ── Secrets, biometrics ──
+  - --talk-name=org.freedesktop.secrets          # sealing keys (vault, support servers, fingerprint switch): Secret Service = KWallet 6 / GNOME Keyring (secretservice_linux.go)
+  # fingerprint unlock of the vault ("Windows Hello" equivalent; hello_linux.go): fprintd lives on
+  # the SYSTEM bus, which the sandbox cannot see without this. Only that name: GetDefaultDevice,
+  # ListEnrolledFingers, Claim/VerifyStart/VerifyStop/Release and the VerifyStatus signal. polkit
+  # (net.reactivated.fprint.device.verify) still decides, per user. Without fprintd the option is hidden.
+  - --system-talk-name=net.reactivated.Fprint
+  # ── Notification area ──
+  - --talk-name=org.kde.StatusNotifierWatcher    # SNI icon (KDE native; GNOME: AppIndicator extension)
+  # ── Local SSH sessions (optional, beyond parity) ──
+  - --socket=ssh-auth
+  # NOT --talk-name=org.freedesktop.Flatpak (flatpak-spawn --host = leaving the
+  # sandbox), not even for the custom editor.
+  # NOT --talk-name=org.freedesktop.Notifications nor org.freedesktop.FileManager1:
+  # inside the sandbox the portals do it (those two are only the fallbacks of
+  # a build run outside Flatpak).
+  # Session bus name OWNED without a flag: tools.obli.Oblireach (the app id;
+  # Flatpak lets an app own its id): single instance, a second launch calls
+  # tools.obli.Oblireach.Instance.Activate / org.freedesktop.Application on
+  # /tools/obli/Oblireach (singleinstance_linux.go).
+  # Portals used WITHOUT permission (org.freedesktop.portal.Desktop):
+  # FileChooser (import/export dialogs), OpenURI (OpenFile writable/ask for the
+  # editing round trip, OpenDirectory for "show in folder"), Notification,
+  # Background (start with the session), ScreenCast + RemoteDesktop
+  # (+ Clipboard) for "Receive help", Documents, Flatpak UpdateMonitor.
+modules:
+  # ── Local RDP helper ──
+  # rdphost: FreeRDP 3 -> H.264 on stdout, shown by the RDP tab's stream mode
+  # (client-app rdphost_relay.go / rdp_stream_view.go). Installed as
+  # /app/libexec/oblireach/rdphost (rdphost_proc.go looks there first).
+  # Licences: FreeRDP Apache-2.0; x264 GPL-2.0+ makes
+  # rdphost (a separate executable, driven over stdin/stdout) GPL — its sources
+  # must be published; the Go app is not linked to it. OpenH264 is the non-GPL
+  # alternative behind the same encoder functions of rdphost.c.
+  - name: x264
+    config-opts:
+      - --enable-shared
+      - --disable-static
+      - --disable-cli
+      - --enable-pic
+      - --disable-lavf
+      - --disable-swscale
+      - --disable-ffms
+      - --disable-gpac
+      - --disable-lsmash
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+    sources:
+      - type: git
+        url: https://code.videolan.org/videolan/x264.git
+        commit: b35605ace3ddf7c1a5d67a2eb553f034aef41d55   # stable branch, 2026-10-05
+    modules:
+      - name: nasm                                           # x264 needs nasm >= 2.13 for its x86 assembly
+        cleanup: ['*']
+        sources:
+          - type: archive
+            url: https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/nasm-2.16.03.tar.xz
+            sha256: 1412a1c760bbd05db026b6c0d1657affd6631cd0a63cddb6f73cc6d4aa616148
+
+  - name: freerdp                      # the client library only (no FreeRDP window)
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+      - -DWITH_SERVER=OFF
+      - -DWITH_SAMPLE=OFF
+      - -DWITH_PROXY=OFF
+      - -DWITH_SHADOW=OFF
+      - -DWITH_CLIENT=ON
+      - -DWITH_CLIENT_COMMON=ON
+      - -DWITH_CLIENT_SDL=OFF
+      - -DWITH_CLIENT_X11=OFF
+      - -DWITH_CLIENT_WAYLAND=OFF
+      - -DWITH_CHANNELS=ON
+      - -DWITH_CLIENT_CHANNELS=ON
+      - -DBUILTIN_CHANNELS=ON          # cliprdr, disp, rdpgfx, rdpsnd... in libfreerdp-client3
+      - -DWITH_FFMPEG=ON               # GFX H.264 / AVC444 decoding (the runtime's libavcodec)
+      - -DWITH_SWSCALE=ON
+      - -DWITH_DSP_FFMPEG=OFF
+      - -DWITH_OPENH264=OFF
+      - -DWITH_PULSE=ON                # remote sound (rdpsnd) through the sandbox's pulseaudio socket
+      - -DWITH_ALSA=OFF
+      - -DWITH_OSS=OFF
+      - -DWITH_CUPS=OFF
+      - -DWITH_PCSC=OFF
+      - -DWITH_SMARTCARD_EMULATE=OFF
+      - -DWITH_KRB5=ON                 # NLA with Kerberos (domain accounts); NTLM is built in
+      - -DWITH_FUSE=OFF
+      - -DWITH_WEBVIEW=OFF
+      - -DWITH_AAD=ON
+      - -DWITH_JSONC_REQUIRED=ON       # WINPR_JSON (rdphost reads its connect line with it)
+      - -DCHANNEL_URBDRC=OFF
+      - -DWITH_MANPAGES=OFF
+      - -DWITH_SIMD=ON
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+      - /lib/cmake
+      - /bin/winpr-*
+    sources:
+      - type: archive
+        url: https://pub.freerdp.com/releases/freerdp-3.32.0.tar.gz
+        sha256: 855645e886f9749a485cb6630ffe934aa717d7b18cf716699ab1fc8864633210
+
+  - name: rdphost
+    buildsystem: simple
+    build-commands:
+      - sh build-linux.sh /app/libexec/oblireach   # builds and runs --selftest (a broken helper fails the build)
+    sources:
+      - type: dir
+        path: rdphost
+
+  - name: oblireach
+    buildsystem: simple
+    build-options:
+      no-debuginfo: true                 # stripped Go binary (-s -w): no .Debug extension to publish
+      append-path: /usr/lib/sdk/golang/bin
+      env:
+        CGO_ENABLED: '1'
+        GOFLAGS: -mod=vendor             # no network inside flatpak-builder: vendored by build-flatpak.sh
+        GOTOOLCHAIN: local               # never try to download another Go toolchain
+        GOCACHE: /run/build/oblireach/.gocache
+    build-commands:
+      - cd client-app && go build -trimpath -ldflags "-s -w -X main.appVersion=$(tr -d '[:space:]' < version.txt)" -o /app/bin/oblireach .
+      - install -Dm644 flatpak/tools.obli.Oblireach.desktop /app/share/applications/tools.obli.Oblireach.desktop
+      - install -Dm644 flatpak/tools.obli.Oblireach.metainfo.xml /app/share/metainfo/tools.obli.Oblireach.metainfo.xml
+      - install -Dm644 client-app/logo-icon.svg /app/share/icons/hicolor/scalable/apps/tools.obli.Oblireach.svg
+    sources:
+      - type: dir
+        path: client-app
+        dest: client-app
+      - type: dir
+        path: agent
+        dest: agent
+      - type: dir
+        path: supportlink
+        dest: supportlink
+      - type: dir
+        path: flatpak
+        dest: flatpak

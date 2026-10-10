@@ -1,0 +1,52 @@
+# oblireach-rdv - example deployment.
+#
+#   cp .env.example .env    # then edit it
+#   docker compose -f docker-compose.example.yml up -d
+#
+# network_mode: host - the relay uses one UDP port per allocation
+# (RDV_RELAY_PORTS); publishing hundreds of ports through docker-proxy is slow
+# and costly. Firewall: open 443/tcp, 3478/udp, 3478/tcp and RDV_RELAY_PORTS/udp.
+#
+# Direct (RDV_TLS=acme or files, RDV_LISTEN=:443): 443/tcp carries HTTPS/WSS
+# signalling AND TURN over TLS (demultiplexed after the TLS handshake). Keep
+# cap_add NET_BIND_SERVICE: the image runs as uid 65532 and binds 443 through
+# a file capability raised at startup. Do not put a TLS-terminating proxy in
+# front of it, or TURN-TLS is lost: use an SNI passthrough with the PROXY
+# protocol instead (RDV_PROXY_PROTOCOL, see .env.example).
+#
+# Behind an HTTP reverse proxy (nginx terminates TLS): RDV_TLS=off,
+# RDV_LISTEN=127.0.0.1:8085, RDV_TRUST_PROXY=true, RDV_PUBLIC_URL=https://...
+# (cap_add is then not needed).
+#
+# Keep RDV_ADMIN_LISTEN on 127.0.0.1 (metrics are not public).
+#
+# Operator accounts (admin, inside the container):
+#   docker compose -f docker-compose.example.yml exec rdv /oblireach-rdv account list
+
+services:
+  rdv:
+    image: oblireach-rdv:latest
+    build:
+      context: ..
+      dockerfile: rdv/Dockerfile
+    network_mode: host
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Account database, ACME certificates, TURN secret. A named volume is
+      # writable by the image's user out of the box; a bind mount
+      # (./data:/data) must be owned by it: chown -R 65532:65532 ./data
+      - rdv-data:/data
+      # RDV_TLS=files: mount the certificate directory read-only.
+      # - /etc/oblireach-rdv/certs:/certs:ro
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "10"
+
+volumes:
+  rdv-data:

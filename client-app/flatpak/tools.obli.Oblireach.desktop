@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Oblireach
+GenericName=Remote control
+GenericName[fr]=Prise en main à distance
+Comment=Remote control, terminals, file transfers and chat with your Obliance devices
+Comment[fr]=Prise en main, terminaux, transferts de fichiers et discussion avec vos appareils Obliance
+Exec=oblireach
+Icon=tools.obli.Oblireach
+Terminal=false
+Categories=Network;RemoteAccess;
+Keywords=remote;rdp;ssh;sftp;obliance;oblireach;
+StartupNotify=true
+StartupWMClass=tools.obli.Oblireach
+SingleMainWindow=true

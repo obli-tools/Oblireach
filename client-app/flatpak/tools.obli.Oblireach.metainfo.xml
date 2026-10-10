@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata of Oblireach Desktop (Linux). Installed by
+     tools.obli.Oblireach.yml; build-flatpak.sh adds the <release> of the
+     version being built (staged copy only, this file keeps no release list). -->
+<component type="desktop-application">
+  <id>tools.obli.Oblireach</id>
+  <name>Oblireach</name>
+  <summary>Remote control and administration of your Obliance devices</summary>
+  <summary xml:lang="fr">Prise en main et administration de vos appareils Obliance</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <developer id="tools.obli">
+    <name>Oblireach</name>
+  </developer>
+  <description>
+    <p>
+      Oblireach Desktop brings together ObliReach remote control, remote terminals,
+      the file explorer and chat with the user, with your Obliance account and its
+      permissions. Several Obliance servers can be used side by side.
+    </p>
+    <p xml:lang="fr">
+      Oblireach Desktop réunit la prise en main ObliReach, les terminaux distants,
+      l'explorateur de fichiers et la discussion avec l'utilisateur, avec votre compte
+      Obliance et ses droits. Plusieurs serveurs Obliance peuvent être utilisés côte à côte.
+    </p>
+  </description>
+  <launchable type="desktop-id">tools.obli.Oblireach.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+  <categories>
+    <category>Network</category>
+    <category>RemoteAccess</category>
+  </categories>
+  <releases>
+    <!-- OBLIREACH_RELEASES -->
+  </releases>
+</component>

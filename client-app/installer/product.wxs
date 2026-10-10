@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Oblireach Client"
+           Manufacturer="Oblireach"
+           Version="CLIENT_VERSION_PLACEHOLDER"
+           Language="1033"
+           UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-0B11EACC0001">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Oblireach Client is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="OblireachClient">
+
+        <Component Id="ClientExe" Guid="B2C3D4E5-F6A7-8901-BCDE-0B11EACC0002">
+          <File Id="ClientExeFile" Source="dist\ObliReach.exe" Name="ObliReach.exe"
+                DefaultVersion="65535.0.0.0" />
+        </Component>
+
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Desktop shortcut -->
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="C3D4E5F6-A7B8-9012-CDEF-0B11EACC0003">
+        <Shortcut Id="DesktopLink"
+                  Name="Oblireach"
+                  Target="[INSTALLFOLDER]ObliReach.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="SOFTWARE\OblireachClient"
+                       Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- Start Menu shortcut -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ProgramMenuDir" Name="Oblireach">
+        <Component Id="StartMenuShortcut" Guid="D4E5F6A7-B8C9-0123-DEFA-0B11EACC0004">
+          <Shortcut Id="StartMenuLink"
+                    Name="Oblireach"
+                    Target="[INSTALLFOLDER]ObliReach.exe"
+                    WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="ProgramMenuDir" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="SOFTWARE\OblireachClient"
+                         Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentRef Id="ClientExe" />
+      <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+
+  </Package>
+</Wix>
